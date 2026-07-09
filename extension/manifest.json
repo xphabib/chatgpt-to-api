@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "ChatGPT Tab Local API Bridge",
+  "version": "1.0.0",
+  "description": "Sends queued local API prompts to an already-open ChatGPT tab and returns the latest response.",
+  "permissions": ["tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
