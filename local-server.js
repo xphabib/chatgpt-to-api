@@ -289,6 +289,152 @@ app.post("/v1/chat/completions", requireBearerApiKey, async (req, res) => {
   }
 });
 
+
+// OpenAI Responses API compatible endpoint.
+// Example:
+// curl -X POST http://localhost:3000/v1/responses \
+//   -H 'Content-Type: application/json' \
+//   -H 'Authorization: Bearer test-key' \
+//   -d '{"input":[{"type":"message","role":"user","content":"hello"}],"model":"chatgpt-web","stream":false,"text":{}}'
+app.post("/v1/responses", requireBearerApiKey, async (req, res) => {
+  const { input, model, stream, text } = req.body || {};
+  if (!Array.isArray(input) || input.length === 0) {
+    return res.status(400).json({
+      error: {
+        message: "input must be a non-empty array",
+        type: "invalid_request_error",
+        code: "invalid_input",
+      },
+    });
+  }
+
+  // Map input items to the messages format expected by buildPromptFromMessages
+  const messages = input
+    .filter((item) => item?.type === "message")
+    .map((item) => ({ role: item.role || "user", content: item.content || "" }));
+
+  const prompt = buildPromptFromMessages(messages).trim();
+
+  if (!prompt) {
+    return res.status(400).json({
+      error: {
+        message: "input did not contain any text",
+        type: "invalid_request_error",
+        code: "empty_input",
+      },
+    });
+  }
+
+  try {
+    const { job, response } = await enqueuePromptAndWait(prompt);
+    const created = Math.floor(Date.now() / 1000);
+
+    const completedAt = Math.floor(Date.now() / 1000);
+    const inputTokens = estimateTokenCount(prompt);
+    const outputTokens = estimateTokenCount(response);
+    const msgId = `msg_${job.id.replaceAll("-", "")}`;
+
+    return res.json({
+      id: `resp_${job.id.replaceAll("-", "")}`,
+      object: "response",
+      created_at: created,
+      status: "completed",
+      background: false,
+      billing: {
+        payer: "developer",
+      },
+      completed_at: completedAt,
+      error: null,
+      frequency_penalty: 0.0,
+      incomplete_details: null,
+      instructions: null,
+      max_output_tokens: null,
+      max_tool_calls: null,
+      model: model || "chatgpt-web",
+      moderation: null,
+      output: [
+        {
+          id: msgId,
+          type: "message",
+          status: "completed",
+          content: [
+            {
+              type: "output_text",
+              annotations: [],
+              logprobs: [],
+              text: response,
+            },
+          ],
+          phase: "final_answer",
+          role: "assistant",
+        },
+      ],
+      parallel_tool_calls: true,
+      presence_penalty: 0.0,
+      previous_response_id: null,
+      prompt_cache_key: null,
+      prompt_cache_retention: "24h",
+      reasoning: {
+        context: "current_turn",
+        effort: "none",
+        mode: "standard",
+        summary: null,
+      },
+      safety_identifier: null,
+      service_tier: "default",
+      store: true,
+      temperature: 1.0,
+      text: {
+        format: {
+          type: "text",
+        },
+        verbosity: "medium",
+      },
+      tool_choice: "auto",
+      tool_usage: {
+        image_gen: {
+          input_tokens: 0,
+          input_tokens_details: { image_tokens: 0, text_tokens: 0 },
+          output_tokens: 0,
+          output_tokens_details: { image_tokens: 0, text_tokens: 0 },
+          total_tokens: 0,
+        },
+        web_search: {
+          num_requests: 0,
+        },
+      },
+      tools: [],
+      top_logprobs: 0,
+      top_p: 0.98,
+      truncation: "disabled",
+      usage: {
+        input_tokens: inputTokens,
+        input_tokens_details: {
+          cache_write_tokens: 0,
+          cached_tokens: 0,
+        },
+        output_tokens: outputTokens,
+        output_tokens_details: {
+          reasoning_tokens: 0,
+        },
+        total_tokens: inputTokens + outputTokens,
+      },
+      user: null,
+      metadata: {},
+    });
+  } catch (error) {
+    return res.status(504).json({
+      error: {
+        message: error.message,
+        type: "timeout_error",
+        code: "chatgpt_timeout",
+      },
+    });
+  }
+});
+
+
+
 // The Chrome extension polls this endpoint to get one job at a time.
 // This queue prevents multiple prompts from being submitted to ChatGPT at once.
 app.get("/extension/next-job", (req, res) => {
@@ -334,6 +480,24 @@ app.post("/extension/job-result", (req, res) => {
 
   return res.json({
     success: true,
+  });
+});
+
+// OpenAI-compatible models list endpoint.
+// Example:
+// curl http://localhost:3000/v1/models \
+//   -H 'Authorization: Bearer test-key'
+app.get("/v1/models", requireBearerApiKey, (req, res) => {
+  res.json({
+    object: "list",
+    data: [
+      {
+        id: "chatgpt-web",
+        object: "model",
+        created: 1700000000,
+        owned_by: "chatgpt-to-api",
+      },
+    ],
   });
 });
 
